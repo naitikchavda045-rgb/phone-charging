@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Battery Full Charge Guard & Alarm</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .progress-ring-circle {
+            transition: stroke-dashoffset 0.35s ease-in-out, stroke 0.35s ease-in-out;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+
+        @keyframes pulse-subtle {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.85; transform: scale(1.02); }
+        }
+
+        .animate-subtle-pulse {
+            animation: pulse-subtle 1.8s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between p-4 selection:bg-emerald-500 selection:text-white">
+
+    <!-- Header Section -->
+    <header class="max-w-md w-full mx-auto flex items-center justify-between pt-2 pb-4 border-b border-slate-800/80">
+        <div class="flex items-center space-x-3">
+            <div class="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400">
+                <i data-lucide="shield-check" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg leading-tight text-white">ChargeGuard Pro</h1>
+                <p class="text-xs text-slate-400">Overcharge Prevention Alarm</p>
+            </div>
+        </div>
+        <div id="api-status-badge" class="px-2.5 py-1 rounded-full text-[10px] font-semibold tracking-wide bg-slate-800 text-slate-400 border border-slate-700 flex items-center space-x-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
+            <span>Detecting</span>
+        </div>
+    </header>
+
+    <!-- Main Section -->
+    <main class="max-w-md w-full mx-auto space-y-4 flex-1 flex flex-col justify-center my-4">
+
+        <!-- Initial User Interaction Prompt for Audio Permission -->
+        <div id="audio-prompt-banner" class="bg-indigo-950/80 border border-indigo-500/40 p-4 rounded-2xl flex items-center justify-between text-indigo-200 backdrop-blur-md">
+            <div class="flex items-center space-x-3">
+                <div class="p-2 bg-indigo-500/20 rounded-xl text-indigo-400">
+                    <i data-lucide="volume-2" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <p class="font-semibold text-xs text-white">Tap to Enable Sound</p>
+                    <p class="text-[11px] text-indigo-300 opacity-90">Required by browsers to play full charge sound.</p>
+                </div>
+            </div>
+            <button id="enable-audio-btn" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs px-3 py-2 rounded-xl shadow transition active:scale-95">
+                Enable Audio
+            </button>
+        </div>
+
+        <!-- Alarm Active Alert Banner -->
+        <div id="alarm-banner" class="hidden bg-rose-950/90 border-2 border-rose-500 p-4 rounded-2xl flex items-center justify-between animate-subtle-pulse text-rose-100 shadow-lg shadow-rose-950/50">
+            <div class="flex items-center space-x-3">
+                <div class="p-2 bg-rose-500/20 rounded-xl text-rose-400">
+                    <i data-lucide="bell-ring" class="w-6 h-6 animate-bounce"></i>
+                </div>
+                <div>
+                    <p class="font-bold text-sm text-white">BATTERY AT 100%!</p>
+                    <p class="text-[11px] text-rose-200">Unplug your charger to stop alarm sound.</p>
+                </div>
+            </div>
+            <button id="stop-alarm-btn" class="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl shadow transition active:scale-95">
+                STOP
+            </button>
+        </div>
+
+        <!-- Battery Gauge Card -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden backdrop-blur-xl flex flex-col items-center justify-center">
+            
+            <!-- Battery SVG Circular Gauge -->
+            <div class="relative w-56 h-56 flex items-center justify-center">
+                <svg class="w-full h-full" viewBox="0 0 120 120">
+                    <!-- Background Ring -->
+                    <circle class="text-slate-800" stroke-width="8" stroke="currentColor" fill="transparent" r="48" cx="60" cy="60" />
+                    <!-- Progress Ring -->
+                    <circle id="progress-circle" class="progress-ring-circle text-emerald-500" stroke-width="8" stroke-dasharray="301.59" stroke-dashoffset="301.59" stroke-linecap="round" stroke="currentColor" fill="transparent" r="48" cx="60" cy="60" />
+                </svg>
+
+                <!-- Center Gauge Content -->
+                <div class="absolute flex flex-col items-center justify-center text-center">
+                    <div id="charging-icon-wrapper" class="hidden mb-1 text-emerald-400 animate-pulse">
+                        <i data-lucide="zap" class="w-6 h-6 fill-emerald-400"></i>
+                    </div>
+                    <span id="battery-level-text" class="text-5xl font-extrabold tracking-tight text-white">--%</span>
+                    <span id="battery-status-text" class="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mt-1">Detecting...</span>
+                </div>
+            </div>
+
+            <!-- Details Dashboard -->
+            <div class="grid grid-cols-2 gap-3 w-full mt-4 pt-4 border-t border-slate-800/80 text-center">
+                <div class="bg-slate-800/40 p-2.5 rounded-2xl border border-slate-800">
+                    <p class="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Charger Plug State</p>
+                    <p id="info-state" class="text-sm font-semibold text-slate-200 mt-0.5">Checking...</p>
+                </div>
+                <div class="bg-slate-800/40 p-2.5 rounded-2xl border border-slate-800">
+                    <p class="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Alarm Trigger</p>
+                    <p class="text-sm font-semibold text-emerald-400 mt-0.5">100% Full & Plugged</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls Grid -->
+        <div class="grid grid-cols-2 gap-3">
+            <!-- Push Notification Permission Button -->
+            <button id="noti-permission-btn" class="bg-slate-900 border border-slate-800 hover:border-slate-700 p-3.5 rounded-2xl text-left flex flex-col justify-between group transition active:scale-95">
+                <div class="flex items-center justify-between w-full">
+                    <span class="p-2 bg-indigo-500/10 text-indigo-400 rounded-xl group-hover:scale-105 transition-transform">
+                        <i data-lucide="bell" class="w-4 h-4"></i>
+                    </span>
+                    <span id="noti-badge" class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">Off</span>
+                </div>
+                <div class="mt-2.5">
+                    <p class="text-xs font-semibold text-slate-200">Push Alert</p>
+                    <p class="text-[10px] text-slate-400">Phone Notifications</p>
+                </div>
+            </button>
+
+            <!-- Test Sound Button -->
+            <button id="test-sound-btn" class="bg-slate-900 border border-slate-800 hover:border-slate-700 p-3.5 rounded-2xl text-left flex flex-col justify-between group transition active:scale-95">
+                <div class="flex items-center justify-between w-full">
+                    <span class="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:scale-105 transition-transform">
+                        <i data-lucide="volume-2" class="w-4 h-4"></i>
+                    </span>
+                    <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800">Test Tone</span>
+                </div>
+                <div class="mt-2.5">
+                    <p class="text-xs font-semibold text-slate-200">Test Alarm Sound</p>
+                    <p class="text-[10px] text-slate-400">Play Bip-Bip Sound</p>
+                </div>
+            </button>
+        </div>
+
+        <!-- Simulation / Fallback Controls -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-3.5 space-y-3">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-2">
+                    <i data-lucide="sliders" class="w-4 h-4 text-slate-400"></i>
+                    <span class="text-xs font-semibold text-slate-300">Manual Simulation Mode</span>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="sim-toggle" class="sr-only peer">
+                    <div class="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-300 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+            </div>
+
+            <div id="sim-controls" class="space-y-2.5 hidden pt-2 border-t border-slate-800/80">
+                <div class="flex items-center justify-between text-xs text-slate-400">
+                    <span>Simulated Battery Level:</span>
+                    <span id="sim-val-display" class="font-bold text-emerald-400">100%</span>
+                </div>
+                <input type="range" id="sim-range" min="1" max="100" value="100" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+                
+                <div class="flex items-center justify-between pt-1">
+                    <span class="text-xs text-slate-400">Simulate Charger Plugged</span>
+                    <button id="sim-plug-btn" class="px-3 py-1 bg-emerald-950 hover:bg-emerald-900 text-xs font-semibold rounded-lg text-emerald-400 border border-emerald-600/40">
+                        Plugged In
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Log Area -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-3">
+            <h3 class="text-xs font-semibold text-slate-400 mb-1.5 flex items-center space-x-1.5">
+                <i data-lucide="history" class="w-3.5 h-3.5"></i>
+                <span>Activity Log</span>
+            </h3>
+            <div id="log-container" class="space-y-1 max-h-20 overflow-y-auto text-[10px] font-mono text-slate-400 pr-1">
+                <p>[System] Loading ChargeGuard Pro...</p>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="max-w-md w-full mx-auto text-center py-2 text-[10px] text-slate-500">
+        Keep this web page open on your phone while charging.
+    </footer>
+
+    <!-- JavaScript Core Logic -->
+    <script>
+        // State management
+        let batteryApi = null;
+        let isSimulated = false;
+        let simLevel = 1.0;
+        let simCharging = true;
+        let alarmInterval = null;
+        let audioCtx = null;
+        let audioEnabled = false;
+        let isAlarmPlaying = false;
+        let alarmManuallySilenced = false;
+
+        // Radial gauge values
+        const radius = 48;
+        const circumference = 2 * Math.PI * radius;
+
+        // UI DOM references
+        const batteryLevelText = document.getElementById('battery-level-text');
+        const batteryStatusText = document.getElementById('battery-status-text');
+        const chargingIconWrapper = document.getElementById('charging-icon-wrapper');
+        const progressCircle = document.getElementById('progress-circle');
+        const infoState = document.getElementById('info-state');
+        const alarmBanner = document.getElementById('alarm-banner');
+        const stopAlarmBtn = document.getElementById('stop-alarm-btn');
+        const testSoundBtn = document.getElementById('test-sound-btn');
+        const notiPermissionBtn = document.getElementById('noti-permission-btn');
+        const notiBadge = document.getElementById('noti-badge');
+        const simToggle = document.getElementById('sim-toggle');
+        const simControls = document.getElementById('sim-controls');
+        const simRange = document.getElementById('sim-range');
+        const simValDisplay = document.getElementById('sim-val-display');
+        const simPlugBtn = document.getElementById('sim-plug-btn');
+        const logContainer = document.getElementById('log-container');
+        const apiStatusBadge = document.getElementById('api-status-badge');
+        const audioPromptBanner = document.getElementById('audio-prompt-banner');
+        const enableAudioBtn = document.getElementById('enable-audio-btn');
+
+        // Setup circle dasharray
+        progressCircle.style.strokeDasharray = `${circumference} ${circumference}`;
+
+        // Initialize icons
+        lucide.createIcons();
+
+        // Helper: Add log messages
+        function logMsg(msg) {
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const p = document.createElement('p');
+            p.textContent = `[${time}] ${msg}`;
+            logContainer.appendChild(p);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // Set Radial Progress Gauge
+        function setProgress(percent) {
+            const offset = circumference - (percent / 100) * circumference;
+            progressCircle.style.strokeDashoffset = offset;
+
+            if (percent >= 100) {
+                progressCircle.style.stroke = "#10b981"; // Emerald
+            } else if (percent > 20) {
+                progressCircle.style.stroke = "#3b82f6"; // Blue
+            } else {
+                progressCircle.style.stroke = "#f43f5e"; // Rose
+            }
+        }
+
+        // Initialize / Resume Web Audio Context
+        function initAudioContext() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            audioEnabled = true;
+            audioPromptBanner.classList.add('hidden');
+        }
+
+        // Play dual high beep sound pattern ("bip-bip")
+        function playBeepSound() {
+            try {
+                initAudioContext();
+                const now = audioCtx.currentTime;
+
+                // Beep 1
+                const osc1 = audioCtx.createOscillator();
+                const gain1 = audioCtx.createGain();
+                osc1.type = 'sine';
+                osc1.frequency.setValueAtTime(880, now);
+                gain1.gain.setValueAtTime(0.5, now);
+                gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+                osc1.connect(gain1);
+                gain1.connect(audioCtx.destination);
+                osc1.start(now);
+                osc1.stop(now + 0.15);
+
+                // Beep 2
+                const osc2 = audioCtx.createOscillator();
+                const gain2 = audioCtx.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.setValueAtTime(1046.5, now + 0.20);
+                gain2.gain.setValueAtTime(0.6, now + 0.20);
+                gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.40);
+                osc2.connect(gain2);
+                gain2.connect(audioCtx.destination);
+                osc2.start(now + 0.20);
+                osc2.stop(now + 0.40);
+
+            } catch (err) {
+                console.error("Audio Playback Error:", err);
+            }
+        }
+
+        // Continuous Loop Alarm trigger
+        function startAlarmLoop() {
+            if (isAlarmPlaying) return;
+            isAlarmPlaying = true;
+            alarmBanner.classList.remove('hidden');
+            logMsg("⚠️ 100% FULL CHARGE ALARM STARTED! Playing continuous sound.");
+
+            // Immediate play
+            playBeepSound();
+
+            // Loop every 800ms
+            alarmInterval = setInterval(playBeepSound, 800);
+
+            // Push Notification trigger
+            triggerPushNotification();
+        }
+
+        // Stop continuous sound loop
+        function stopAlarm(manual = false) {
+            if (alarmInterval) {
+                clearInterval(alarmInterval);
+                alarmInterval = null;
+            }
+            if (isAlarmPlaying) {
+                isAlarmPlaying = false;
+                alarmBanner.classList.add('hidden');
+                if (manual) {
+                    alarmManuallySilenced = true;
+                    logMsg("Alarm manually stopped by user.");
+                } else {
+                    logMsg("Charger unplugged. Alarm stopped automatically.");
+                }
+            }
+        }
+
+        // System Push Notification
+        function triggerPushNotification() {
+            if ("Notification" in window && Notification.permission === "granted") {
+                try {
+                    new Notification("🔋 Battery 100% Fully Charged!", {
+                        body: "Unplug charger now! Alarm will loop until unplugged.",
+                        tag: "battery-alarm"
+                    });
+                } catch (e) {
+                    console.error("Notification trigger failure:", e);
+                }
+            }
+        }
+
+        // Update Dashboard UI & Check Alarm Trigger Conditions
+        function updateUI(level, charging) {
+            const percentage = Math.round(level * 100);
+            batteryLevelText.textContent = `${percentage}%`;
+            setProgress(percentage);
+
+            if (charging) {
+                chargingIconWrapper.classList.remove('hidden');
+                batteryStatusText.textContent = percentage === 100 ? "Fully Charged" : "Charging";
+                infoState.textContent = percentage === 100 ? "Plugged (100%)" : "Charging";
+                infoState.className = "text-sm font-semibold text-emerald-400 mt-0.5";
+
+                // Trigger conditions: 100% & Plugged In
+                if (percentage >= 100) {
+                    if (!isAlarmPlaying && !alarmManuallySilenced) {
+                        startAlarmLoop();
+                    }
+                } else {
+                    alarmManuallySilenced = false;
+                }
+            } else {
+                chargingIconWrapper.classList.add('hidden');
+                batteryStatusText.textContent = "Discharging";
+                infoState.textContent = "Unplugged";
+                infoState.className = "text-sm font-semibold text-slate-300 mt-0.5";
+
+                // UNPLUGGED: Stop alarm loop automatically
+                alarmManuallySilenced = false;
+                if (isAlarmPlaying) {
+                    stopAlarm(false);
+                }
+            }
+        }
+
+        // Hardware Battery Status API connection
+        async function initBatteryAPI() {
+            if ('getBattery' in navigator) {
+                try {
+                    batteryApi = await navigator.getBattery();
+                    
+                    apiStatusBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>Hardware API Active</span>`;
+                    apiStatusBadge.className = "px-2.5 py-1 rounded-full text-[10px] font-semibold tracking-wide bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center space-x-1";
+                    
+                    logMsg("Hardware Battery API connected successfully.");
+
+                    batteryApi.addEventListener('levelchange', () => {
+                        if (!isSimulated) {
+                            updateUI(batteryApi.level, batteryApi.charging);
+                            logMsg(`Level update: ${Math.round(batteryApi.level * 100)}%`);
+                        }
+                    });
+
+                    batteryApi.addEventListener('chargingchange', () => {
+                        if (!isSimulated) {
+                            updateUI(batteryApi.level, batteryApi.charging);
+                            logMsg(`Plug state update: ${batteryApi.charging ? 'Plugged in' : 'Unplugged'}`);
+                        }
+                    });
+
+                    updateUI(batteryApi.level, batteryApi.charging);
+
+                } catch (err) {
+                    logMsg("Battery API disabled/unsupported by device/browser. Simulation mode active.");
+                    enableSimulationMode(true);
+                }
+            } else {
+                logMsg("Battery API unsupported on iOS/Safari. Using Simulation controls.");
+                enableSimulationMode(true);
+            }
+        }
+
+        // Toggle manual simulation mode
+        function enableSimulationMode(enable) {
+            isSimulated = enable;
+            simToggle.checked = enable;
+
+            if (enable) {
+                simControls.classList.remove('hidden');
+                apiStatusBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span>Simulation Mode</span>`;
+                apiStatusBadge.className = "px-2.5 py-1 rounded-full text-[10px] font-semibold tracking-wide bg-amber-950 text-amber-400 border border-amber-800 flex items-center space-x-1";
+                updateUI(simLevel, simCharging);
+                logMsg("Simulation controls enabled.");
+            } else {
+                simControls.classList.add('hidden');
+                if (batteryApi) {
+                    apiStatusBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>Hardware API Active</span>`;
+                    apiStatusBadge.className = "px-2.5 py-1 rounded-full text-[10px] font-semibold tracking-wide bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center space-x-1";
+                    updateUI(batteryApi.level, batteryApi.charging);
+                }
+                logMsg("Switched to Hardware API monitoring.");
+            }
+        }
+
+        // Check & display Push Notification Badge
+        function updateNotificationBadge() {
+            if (!("Notification" in window)) {
+                notiBadge.textContent = "Unsupported";
+                notiBadge.className = "text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-500";
+                return;
+            }
+
+            const status = Notification.permission;
+            if (status === "granted") {
+                notiBadge.textContent = "Enabled";
+                notiBadge.className = "text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800";
+            } else if (status === "denied") {
+                notiBadge.textContent = "Denied";
+                notiBadge.className = "text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-950 text-rose-400 border border-rose-800";
+            } else {
+                notiBadge.textContent = "Tap to enable";
+                notiBadge.className = "text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-400 border border-indigo-800";
+            }
+        }
+
+        // Event listener bindings
+        function setupEventListeners() {
+            // Document click to unlock Web Audio context
+            document.body.addEventListener('click', () => {
+                initAudioContext();
+            }, { once: true });
+
+            enableAudioBtn.addEventListener('click', () => {
+                initAudioContext();
+                logMsg("Audio system enabled.");
+            });
+
+            stopAlarmBtn.addEventListener('click', () => stopAlarm(true));
+
+            testSoundBtn.addEventListener('click', () => {
+                logMsg("Testing bip-bip alarm tone...");
+                playBeepSound();
+            });
+
+            notiPermissionBtn.addEventListener('click', async () => {
+                if (!("Notification" in window)) {
+                    logMsg("Push notifications are not supported by this browser.");
+                    return;
+                }
+
+                const permission = await Notification.requestPermission();
+                updateNotificationBadge();
+                if (permission === 'granted') {
+                    logMsg("Push notifications permitted.");
+                    triggerPushNotification();
+                } else {
+                    logMsg("Push notification permission declined.");
+                }
+            });
+
+            simToggle.addEventListener('change', (e) => {
+                enableSimulationMode(e.target.checked);
+            });
+
+            simRange.addEventListener('input', (e) => {
+                const val = parseInt(e.target.value);
+                simLevel = val / 100;
+                simValDisplay.textContent = `${val}%`;
+                if (isSimulated) {
+                    updateUI(simLevel, simCharging);
+                }
+            });
+
+            simPlugBtn.addEventListener('click', () => {
+                simCharging = !simCharging;
+                simPlugBtn.textContent = simCharging ? "Plugged In" : "Unplugged";
+                simPlugBtn.className = simCharging 
+                    ? "px-3 py-1 bg-emerald-950 hover:bg-emerald-900 text-xs font-semibold rounded-lg text-emerald-400 border border-emerald-600/40"
+                    : "px-3 py-1 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg text-slate-400 border border-slate-700";
+                if (isSimulated) {
+                    updateUI(simLevel, simCharging);
+                }
+            });
+        }
+
+        // Window load startup
+        window.onload = function() {
+            setupEventListeners();
+            initBatteryAPI();
+            updateNotificationBadge();
+            logMsg("ChargeGuard Pro initialization complete.");
+        };
+    </script>
+</body>
+</html>
